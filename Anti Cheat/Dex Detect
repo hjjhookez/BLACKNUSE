@@ -1,0 +1,23 @@
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+task.wait(3)
+local name = tostring(math.random())
+local Chat = game:GetService("Chat")
+Instance.new("BoolValue", Chat).Name = name
+
+local t = setmetatable({}, {__mode="v"})
+while task.wait() do
+    t[1] = {}
+    t[2] = Chat:FindFirstChild(name)
+    while t[1] ~= nil do
+        t[3] = string.rep("ab", 1024*2)
+        t[3] = nil
+        task.wait()
+    end
+    if t[2] ~= nil then
+        game.Players.LocalPlayer:Kick("dex")
+        break
+    end
+end
