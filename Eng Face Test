@@ -1,0 +1,691 @@
+-- just a dumb hub made by some clown
+-- ENG
+getgenv().eris_version = "1.0.3";
+if getgenv().eris_running then return end
+getgenv().eris_running = true;
+local Fluent = loadstring(game:HttpGetAsync("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local local_player = Players.LocalPlayer
+local character = local_player.Character or local_player.CharacterAdded:Wait()
+local humanoid_root_part = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:FindFirstChildOfClass("Humanoid")
+local streaming = true
+local Window = Fluent:CreateWindow({
+    Title = "영어 제식 오토",
+    SubTitle = "by eris",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(520, 460),
+    Acrylic = false,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.RightShift
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "home" });
+	Manual = Window:AddTab({ Title = "Manual", Icon = "wrench" });
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" });
+}
+
+local oldwarn = warn
+local oldprint = print
+local warn = function(...)
+	warn(":: Eris ::", ...)
+	if not streaming then return end
+	Fluent:Notify({
+        Title = "Signal",
+        Content = ...,
+        SubContent = "streaming",
+        Duration = 5
+    })
+end
+
+local print = function(...)
+	print(":: Eris ::", ...)
+	if not streaming then return end
+	Fluent:Notify({
+        Title = "Signal",
+        Content = ...,
+        SubContent = "streaming",
+        Duration = 3
+    })
+end
+
+local Options = Fluent.Options
+local vran = true
+local debug_msg = ""
+
+local is_active = false
+local is_testing = false
+local already_edit = false
+local chat_connection = {}
+local target_player = nil
+local player_name = "None"
+local last_direction = nil
+local status_text = "Inactive"
+local last_action = nil
+local initial_yaw = nil
+local ambiguous_count = 0
+local detect_delay = 0.5
+local daegak_true = true
+local fakeChk_true = false
+local last_fake = true
+
+local angle = 0
+
+local rotate_speed = 0.2
+local spin_speed = 5
+local rotation_queue = {}
+local is_rotating = false
+local pause = false
+
+local update_check = true
+local now_version = tostring(getgenv().eris_version)
+
+local spin_connection = nil
+local look_connection = nil
+local touching = false
+
+local direction_phrases = {
+	["Left face."] = "non_ambiguous:1",
+	["Right face."] = "non_ambiguous:2",
+	["Left incline."] = "ambiguous:1",
+	["Right incline."] = "ambiguous:2",
+}
+
+local face_phrases = {
+	["Center face."] = 1,
+}
+
+local fake_phrases = {
+	["Fake."] = 1,
+}
+
+local function set_facing_reference()
+	if not humanoid_root_part then return end
+	angle = 0
+	local look = humanoid_root_part.CFrame.LookVector
+	initial_yaw = Vector3.new(look.X, 0, look.Z).Unit
+end
+
+local function update_autocomplete()
+	if not Options.Input then return end
+	if already_edit then return end
+	local text = Options.Input.Value
+	if text == "" then return end
+	local matches = {}
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Name:sub(1, #text):lower() == text:lower() then
+			table.insert(matches, plr)
+		end
+	end
+	if #matches == 1 then
+		already_edit = true
+		Options.Input:SetValue(matches[1].Name)
+		target_player = matches[1].Name
+		player_name = matches[1].Name
+	end
+end
+
+local function get_character_yaw()
+    if not initial_yaw then
+        return angle
+    end
+    local character = local_player.Character
+    if not character then return "None" end
+    local hrp = character:WaitForChild("HumanoidRootPart")
+    local look_vector = hrp.CFrame.LookVector
+    local yaw = math.deg(math.atan2(look_vector.X, look_vector.Z))
+    local initial_yaw_angle = math.deg(math.atan2(initial_yaw.X, initial_yaw.Z))
+    return math.round(((yaw - initial_yaw_angle) % 360 + 360) % 360)
+end
+
+local function is_touching_target(target_hrp)
+    if not humanoid_root_part or not target_hrp then return false end
+    local distance = (humanoid_root_part.Position - target_hrp.Position).Magnitude
+    return distance < 2
+end
+
+local function start_spin()
+	if spin_connection then return end
+	spin_connection = RunService.RenderStepped:Connect(function()
+		humanoid_root_part.CFrame = humanoid_root_part.CFrame * CFrame.Angles(0, math.rad(5), 0)
+	end)
+end
+
+local function stop_spin()
+	if spin_connection then
+		spin_connection:Disconnect()
+		spin_connection = nil
+	end
+end
+
+local function handle_behavior(toggle)
+    if look_connection then
+        look_connection:Disconnect()
+        look_connection = nil
+    end
+    stop_spin()
+	humanoid.AutoRotate = true
+    if not toggle then return end
+    if not target_player or not target_player.Character then
+        return
+    end
+
+	humanoid.AutoRotate = false
+    local target_hrp = target_player.Character:WaitForChild("HumanoidRootPart")
+    look_connection = RunService.RenderStepped:Connect(function()
+        if not humanoid_root_part or not humanoid_root_part.Parent then
+            return
+        end
+        if not target_hrp or not target_hrp.Parent then
+            return
+        end
+
+        if is_touching_target(target_hrp) then
+            if not touching then
+                touching = true
+                start_spin()
+            end
+        else
+            if touching then
+                touching = false
+                stop_spin()
+            end
+            local my_pos = humanoid_root_part.Position
+            local target_pos = target_hrp.Position
+            local direction = (target_pos - my_pos) * Vector3.new(1, 0, 1)
+            if direction.Magnitude < 0.01 then
+                return
+            end
+            local new_cframe = CFrame.lookAt(my_pos, my_pos + direction)
+            humanoid_root_part.CFrame = new_cframe
+        end
+    end)
+end
+
+local function process_queue()
+    if is_rotating or #rotation_queue == 0 then return end
+    is_rotating = true
+    local rotation = table.remove(rotation_queue, 1)
+    if rotation.type == "facing" then
+		task.wait(detect_delay)
+        local position = humanoid_root_part.Position
+        local angle_deg = rotation.angle
+        local rotated_vector = CFrame.Angles(0, math.rad(angle_deg), 0) * initial_yaw
+        local new_cframe = CFrame.lookAt(position, position + rotated_vector)
+        local tween_info = TweenInfo.new(rotate_speed, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        local tween = TweenService:Create(humanoid_root_part, tween_info, { CFrame = new_cframe })
+        tween.Completed:Connect(function()
+            is_rotating = false
+            print("Rotation complete: " .. rotation.facing .. " (" .. angle_deg .. " degrees)")
+            process_queue()
+        end)
+        tween:Play()
+    elseif rotation.type == "angle" then
+		task.wait(detect_delay)
+        local current_cframe = humanoid_root_part.CFrame
+        local position = current_cframe.Position
+        local current_look = current_cframe.LookVector
+        current_look = Vector3.new(current_look.X, 0, current_look.Z).Unit
+        local rotated_look = CFrame.Angles(0, math.rad(rotation.angle), 0) * current_look
+        rotated_look = Vector3.new(rotated_look.X, 0, rotated_look.Z).Unit
+        local new_cframe = CFrame.lookAt(position, position + rotated_look)
+        local tween_info = TweenInfo.new(rotate_speed, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        local tween = TweenService:Create(humanoid_root_part, tween_info, { CFrame = new_cframe })
+        tween.Completed:Connect(function()
+            is_rotating = false
+            print("Rotation complete: " .. rotation.angle .. " degrees")
+            process_queue()
+        end)
+        tween:Play()
+    end
+end
+
+local function rotate_facing(facing)
+	if not humanoid_root_part then return end
+    if not initial_yaw then
+        set_facing_reference()
+        if not initial_yaw then
+            print("initial_yaw setting failed")
+            return
+        end
+    end
+    local angle_deg = 0
+    if facing == "back" then
+        angle_deg = 180
+    elseif facing == "left" then
+        angle_deg = -90
+    elseif facing == "right" then
+        angle_deg = 90
+    end
+    table.insert(rotation_queue, { type = "facing", facing = facing, angle = angle_deg })
+    process_queue()
+end
+
+local function rotate_angle(angle_degrees)
+    if not humanoid_root_part then return end
+    table.insert(rotation_queue, { type = "angle", angle = angle_degrees })
+    process_queue()
+end
+
+do
+	local Stats = Tabs.Main:AddParagraph({
+        Title = "-------------------",
+        Content = "Target: None\nStatus: Inactive\nAngle: 0"
+    })
+
+	task.spawn(function()
+		while true do
+			task.wait(0.1)
+			Stats:SetDesc("Target: "..(player_name and player_name or "None").."\nStatus: "..(status_text and status_text or "Inactive").."\nAngle: "..tostring(angle))
+		end
+	end)
+
+    local Input = Tabs.Main:AddInput("Input", {
+        Title = "Target Name",
+		Description = "시험관 이름을 적어주세요.",
+        Default = "",
+        Placeholder = "이름",
+        Numeric = false,
+        Finished = false
+    })
+
+    Input:OnChanged(function()
+		if Options.Input.Value == "" then
+			already_edit = false
+		end
+		player_name = Options.Input.Value
+        update_autocomplete()
+    end)
+
+	local Toggle = Tabs.Main:AddToggle("Ready", {
+		Title = "Synchronise", 
+		Description = "동기화 여부를 결정할 수 있어요.",
+		Default = false 
+	})
+
+	local Daegak = Tabs.Main:AddToggle("Daegak", {
+		Title = "Incline F&B", 
+		Description = "대각선을 볼 때 앞, 뒤를 봐 허용 여부를 결정할 수 있어요.",
+		Default = true 
+	})
+
+	local FakeChk = Tabs.Main:AddToggle("FakeChk", {
+		Title = "Fake Check", 
+		Description = "페이크 체크 여부를 결정할 수 있어요.\ne.g. 'Left inline.'를 입력하고 Fake. 을 안외쳤을 때 페이크로 간주",
+		Default = false 
+	})
+
+	local Pause = Tabs.Main:AddToggle("Pause", {
+		Title = "Pause & Resume", 
+		Description = "일시 정지.",
+		Default = false 
+	})
+
+	local update = Tabs.Main:AddButton({
+		Title = "Update now!",
+		Description = "최신 버전으로 바로 업데이트 해요!\n변경사항 초기화 됨",
+		Callback = function()
+			getgenv().eris_running = false
+			Fluent:Destroy()
+			loadstring(game:HttpGet("https://raw.githubusercontent.com/Ukrubojvo/AutoFaceTest/master/english", true))()
+		end
+	})
+
+    Toggle:OnChanged(function()
+        if Options.Ready.Value then
+			local plr = Players:FindFirstChild(target_player)
+			if plr then
+				set_facing_reference()
+				target_player = plr
+				is_active = true
+				is_testing = false
+				ambiguous_count = 0
+				status_text = "Ready ✅"
+			end
+		else
+			humanoid.AutoRotate = true
+			is_active = false
+			is_testing = false
+			ambiguous_count = 0
+			status_text = "Inactive"
+		end
+    end)
+
+	Daegak:OnChanged(function()
+		daegak_true = Options.Daegak.Value
+	end)
+
+	FakeChk:OnChanged(function()
+		fakeChk_true = Options.FakeChk.Value
+	end)
+
+	Pause:OnChanged(function()
+		pause = Options.Pause.Value
+	end)
+
+	Daegak:SetValue(true)
+	FakeChk:SetValue(false)
+
+	----------------------------------------------
+
+	local ResetYaw = Tabs.Manual:AddButton({
+        Title = "방향 초기화",
+		Description = "현재 방향을 기준점으로 저장",
+        Callback = function()
+            set_facing_reference()
+			print("Yaw initialisation complete")
+        end
+    })
+
+	local ForceFaceStart = Tabs.Manual:AddButton({
+        Title = "강제 페이스 테스트 시작",
+		Description = "페이스 테스트 시작을 강제로 적용해요.\ne.g. 페이스 테스트 시작이 감지 인됨",
+        Callback = function()
+			if is_active ~= true then return end
+			is_testing = true
+			last_direction = nil
+			last_action = nil
+			angle = 0
+			ambiguous_count = 0
+			status_text = "Start Detected!"
+            print("강제로 시작 여부가 활성화 됨")
+        end
+    })
+
+	local ControlFace = Tabs.Manual:AddToggle("ControlFace", {
+		Title = "호스트 주시",
+		Default = false 
+	})
+
+	ControlFace:OnChanged(function()
+		if not target_player then
+			Fluent:Notify({
+				Title = "Not Found",
+				Content = "Please select a player",
+				SubContent = "streaming",
+				Duration = 5
+			})
+			return
+		end
+		local plr = Players:FindFirstChild(player_name)
+		if plr then
+			target_player = plr
+		end
+		if Options.ControlFace.Value then
+			handle_behavior(true)
+		else
+			handle_behavior(false)
+		end
+		return
+	end)
+
+	local LeftFace = Tabs.Manual:AddButton({
+        Title = "좌향 좌",
+        Callback = function()
+            rotate_angle(90)
+        end
+    })
+
+	local RightFace = Tabs.Manual:AddButton({
+        Title = "우향 우",
+        Callback = function()
+            rotate_angle(-90)
+        end
+    })
+
+	local LeftIncline = Tabs.Manual:AddButton({
+        Title = "좌향 우",
+        Callback = function()
+            rotate_angle(45)
+        end
+    })
+
+	local RightIncline = Tabs.Manual:AddButton({
+        Title = "우향 좌",
+        Callback = function()
+            rotate_angle(-45)
+        end
+    })
+
+	local CenterFace = Tabs.Manual:AddButton({
+        Title = "앞을 봐",
+        Callback = function()
+            rotate_facing("front")
+        end
+    })
+
+	local AboutFace = Tabs.Manual:AddButton({
+        Title = "뒤를 봐",
+        Callback = function()
+            rotate_facing("back")
+        end
+    })
+
+	local SpinFace = Tabs.Manual:AddButton({
+        Title = "뒤로 돌아",
+        Callback = function()
+            rotate_angle(180)
+        end
+    })
+
+	----------------------------------------------
+	local Detect = Tabs.Settings:AddSlider("Detect", {
+        Title = "Detect Delay",
+        Description = "감지 딜레이를 결정해요.",
+        Default = 0.5,
+        Min = 0,
+        Max = 2,
+        Rounding = 1
+    })
+
+    Detect:OnChanged(function(Value)
+        detect_delay = Value
+    end)
+
+	Detect:SetValue(0.5)
+
+	local Speed = Tabs.Settings:AddSlider("Speed", {
+        Title = "Rotation Speed",
+        Description = "회전 속도를 결정해요.",
+        Default = 0.2,
+        Min = 0,
+        Max = 1,
+        Rounding = 1
+    })
+
+    Speed:OnChanged(function(Value)
+        rotate_speed = Value
+    end)
+
+	Speed:SetValue(0.2)
+
+	local Spin = Tabs.Settings:AddSlider("Spin", {
+        Title = "Spin Speed",
+        Description = "스핀 속도를 결정해요.\ne.g. 호스트 주시",
+        Default = 5,
+        Min = 0,
+        Max = 10,
+        Rounding = 0.1
+    })
+
+    Spin:OnChanged(function(Value)
+        spin_speed = Value
+    end)
+
+	Spin:SetValue(5)
+
+	local Streaming = Tabs.Settings:AddToggle("Streaming", {
+		Title = "Streaming",
+		Description = "알림 표시 여부를 결정해요.",
+		Default = true
+	})
+
+	Streaming:OnChanged(function()
+		streaming = Options.Streaming.Value
+	end)
+end
+
+Window:SelectTab(1)
+
+local function handle_chat(player, message)
+	if not is_active then return end
+	if player.Name ~= player_name then return end
+	if pause then return end
+	
+	if message == "Face Test Start." then
+		is_testing = true
+		last_direction = nil
+		last_action = nil
+		angle = 0
+		ambiguous_count = 0
+		status_text = "Start Detected!"
+		return
+	end
+	if message == "Face Test End." then
+		if last_action ~= "Center face." or math.abs(((angle + 180) % 360 - 180)) > 10 then
+			status_text = "Fake 🔴"
+			return
+		end
+		is_active = false
+		is_testing = false
+		angle = 0
+		ambiguous_count = 0
+		status_text = "Ended! ✅"
+		return
+	end
+	if is_testing then
+		if string.find(message, "#") then
+			last_fake = true
+			status_text = "Fake 🔴"
+			return
+		end
+		if fakeChk_true and status_text == "Fake 🔴" and last_fake then
+			return
+		end
+		humanoid.AutoRotate = false
+		if fake_phrases[message] then
+			last_fake = false
+			status_text = "No Fake Ready..."
+			humanoid.AutoRotate = true
+			return
+		end
+		if direction_phrases[message] then
+			if string.match(direction_phrases[message], "([^:]+)") == "ambiguous" then
+				last_direction = message
+				if ambiguous_count >= 2 then ambiguous_count = 0 end
+				ambiguous_count = ambiguous_count + 1
+				if tonumber(string.match(direction_phrases[message], ":(%d+)")) == 1 then
+					angle = angle + 45
+					rotate_angle(45)
+				else
+					angle = angle - 45
+					rotate_angle(-45)
+				end
+			else
+				last_action = message
+				if tonumber(string.match(direction_phrases[message], ":(%d+)")) == 1 then
+					angle = angle + 90
+					rotate_angle(90)
+				else
+					angle = angle - 90
+					rotate_angle(-90)
+				end
+			end
+			status_text = "No fake 🟢"
+			humanoid.AutoRotate = true
+			return 
+		end
+		if face_phrases[message] then
+			status_text = "No fake 🟢"
+			if face_phrases[message] == 1 then
+				if last_action == "Control face." then
+					handle_behavior(false)
+				end
+				rotate_facing("front")
+			end			
+			last_action = message
+			humanoid.AutoRotate = true
+			return
+		end
+		if message == "About face." then
+			status_text = "No fake 🟢"
+			angle = angle + 180
+			rotate_angle(180)
+			humanoid.AutoRotate = true
+			return
+		end
+		if message == "Control face." then
+			if last_action == "Center face." or angle == initial_yaw then
+				status_text = "No fake 🟢"
+				last_action = message
+				task.wait(detect_delay)
+				handle_behavior(true)
+			else
+				status_text = "Fake 🔴"
+			end
+			humanoid.AutoRotate = true
+			return
+		end
+		status_text = "Fake 🔴"
+		humanoid.AutoRotate = true
+		return
+	end
+end
+local function cleanup_connection(player)
+    if chat_connection[player] then
+        chat_connection[player]:Disconnect()
+        chat_connection[player] = nil
+        print("Disconnected Event for " .. player.Name)
+    end
+end
+local function update_character()
+	print("Reset detected! Reconfiguring variables...")
+	character = local_player.Character or local_player.CharacterAdded:Wait()
+	humanoid_root_part = character:WaitForChild("HumanoidRootPart")
+	humanoid = character:WaitForChild("Humanoid")
+	if not humanoid then return end
+	humanoid.AutoRotate = true
+end
+update_character()
+for _, plr in ipairs(Players:GetPlayers()) do
+	cleanup_connection(plr)
+	chat_connection[plr] = plr.Chatted:Connect(function(msg) handle_chat(plr, msg) end)
+end
+Players.PlayerAdded:Connect(function(plr)
+	cleanup_connection(plr)
+	chat_connection[plr] = plr.Chatted:Connect(function(msg) handle_chat(plr, msg) end)
+end)
+Players.PlayerRemoving:Connect(function(plr)
+	cleanup_connection(plr)
+end)
+local_player.CharacterAdded:Connect(update_character)
+task.spawn(function ()
+	while vran do
+		task.wait(0.1)
+		if humanoid.AutoRotate then
+			angle = get_character_yaw()
+		end
+		if angle >= 360 then
+			angle = angle - 360
+		end
+	end
+end)
+do
+	abc = RunService.Heartbeat:Connect(function()
+		if Fluent.Unloaded then
+			vran = false
+			streaming = false
+			for _, plr in ipairs(Players:GetPlayers()) do
+				cleanup_connection(plr)
+			end
+			warn = oldwarn
+			print = oldprint
+			getgenv().eris_running = false
+			abc:Disconnect()
+			return
+		end
+	end)
+end
