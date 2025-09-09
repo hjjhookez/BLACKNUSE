@@ -1,19 +1,30 @@
 local Check = true
-local env = {}
-local Remote = Instance.new("BindableEvent")
+local Remote = Instance.new("RemoteEvent")
 local Proxy = newproxy(true)
 
-getmetatable(Proxy).__tostring = function()
+local OriginalENV = getfenv()
+local Expected = 1
+
+getmetatable(Proxy).__tostring = (function()
 	for Level = 1, 20 do
-		local s, fenv = pcall(getfenv, Level)
-		if s and fenv and fenv.getgenv then
-			print(string.format("레벨 %s에서 악용 환경 발견", tostring(Level)))
+		local StackFunc = debug.info(Level, "f")
+		if not StackFunc then break end
+
+		local Success, StackENV = pcall(getfenv, Level)
+		if not Success or StackENV ~= OriginalENV then
+			game.Players.LocalPlayer:Kick(string.format("레벨 %s에서 익스플로잇 환경 발견", tostring(Level)))
+		else
+			Expected = true
 		end
 	end
 	return ""
-end
+end)
 
 while Check do
-	Remote:Fire({[Proxy] = {}})
+	Expected = 1
+	Remote:FireServer({[Proxy] = true})
+	if Expected ~= true then
+		game.Players.LocalPlayer:Kick("tostring 리디렉션 발견")
+	end
 	task.wait()
 end
