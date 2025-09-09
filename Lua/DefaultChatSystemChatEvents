@@ -1,0 +1,14 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Remote
+local DefaultChatSystemChatEvents = ReplicatedStorage.DefaultChatSystemChatEvents -- RemoteEvent 
+
+DefaultChatSystemChatEvents:FireServer(
+    "L"
+)
+
+
+or
+
+
+game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents:FireServer("Message", "All")
