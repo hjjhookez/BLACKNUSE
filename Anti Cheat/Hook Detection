@@ -1,0 +1,19 @@
+local Check = true
+local env = {}
+local Remote = Instance.new("BindableEvent")
+local Proxy = newproxy(true)
+
+getmetatable(Proxy).__tostring = function()
+	for Level = 1, 20 do
+		local s, fenv = pcall(getfenv, Level)
+		if s and fenv and fenv.getgenv then
+			print(string.format("레벨 %s에서 악용 환경 발견", tostring(Level)))
+		end
+	end
+	return ""
+end
+
+while Check do
+	Remote:Fire({[Proxy] = {}})
+	task.wait()
+end
